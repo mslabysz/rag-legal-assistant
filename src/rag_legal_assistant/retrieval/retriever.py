@@ -4,6 +4,11 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, ScoredPoint
 from rag_legal_assistant.config import settings
 from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_classic.retrievers.contextual_compression import ContextualCompressionRetriever
+from langchain_community.document_compressors import FlashrankRerank
+from langchain_qdrant import QdrantVectorStore
+from langchain_openai import ChatOpenAI
+from langchain_classic.retrievers.multi_query import MultiQueryRetriever
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +52,10 @@ def index_documents(chunks: list[dict], batch_size: int = 100):
                 vector=vector,
                 payload={
                     "text": chunk["text"],
-                    "source": chunk["source"],
-                    "chunk_index": chunk["chunk_index"],
+                    "metadata": {
+                        "source": chunk["source"],
+                        "chunk_index": chunk["chunk_index"],
+                    }
                 }
             )
             for i, (chunk,vector) in enumerate(zip(batch,vectors))
@@ -64,21 +71,40 @@ def index_documents(chunks: list[dict], batch_size: int = 100):
 
 
 def search(query: str, top_k: int) -> list[dict]:
-    query_vector = embeddings.embed_query(query)
-
-    results = client.query_points(
+    vector_store = QdrantVectorStore(
+        client=client,
         collection_name=settings.COLLECTION_NAME,
-        query=query_vector,
-        limit=top_k,
-        with_payload=True,
-    ).points
+        embedding=embeddings,
+        content_payload_key="text",
+    )
+
+    base_retriever = vector_store.as_retriever(search_kwargs={"k": 20})
+
+    query_llm = ChatOpenAI(
+        model=settings.LLM_MODEL,
+        api_key=settings.OPENAI_API_KEY
+    )
+
+    mq_retriever = MultiQueryRetriever.from_llm(
+        retriever=base_retriever,
+        llm=query_llm
+    )
+
+    compressor = FlashrankRerank(top_n=top_k)
+    compression_retriever = ContextualCompressionRetriever(
+        base_compressor=compressor,
+        base_retriever=mq_retriever
+    )
+
+    docs = compression_retriever.invoke(query)
 
     return [
         {
-            "score": hit.score,
-            "text": hit.payload["text"],
-            "source": hit.payload["source"],
-            "chunk_index": hit.payload["chunk_index"],
+            "score": doc.metadata.get("relevance_score", 0),
+            "text": doc.page_content,
+            "source": doc.metadata.get("source", "nieznane"),
+            "chunk_index": doc.metadata.get("chunk_index", 0),
         }
-        for hit in results
+        for doc in docs
     ]
+
