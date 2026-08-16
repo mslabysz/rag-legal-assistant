@@ -10,7 +10,8 @@ class Settings(BaseSettings):
     COLLECTION_NAME: str = "legal_docs"
     CHUNK_SIZE: int = 512
     CHUNK_OVERLAP: int = 50
-    EMBEDDING_MODEL: str = "text-embedding-3-small"
+    EMBEDDING_MODEL: str = "sdadas/st-polish-paraphrase-from-mpnet"
     LLM_MODEL: str = "gpt-4o-mini"
+    EMBEDDING_PROVIDER: str = "local"
 
 settings = Settings()

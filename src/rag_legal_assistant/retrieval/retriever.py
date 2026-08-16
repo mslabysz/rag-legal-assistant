@@ -3,15 +3,24 @@ from langchain_openai import OpenAIEmbeddings
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, ScoredPoint
 from rag_legal_assistant.config import settings
+from langchain_community.embeddings import HuggingFaceEmbeddings
 
 logger = logging.getLogger(__name__)
 
 client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
 
-embeddings = OpenAIEmbeddings(
-    model=settings.EMBEDDING_MODEL,
-    api_key=settings.OPENAI_API_KEY
-)
+if settings.EMBEDDING_PROVIDER == "local":
+    embeddings = HuggingFaceEmbeddings(
+        model_name=settings.EMBEDDING_MODEL,
+        model_kwargs={"device": "cpu"},
+    )
+    VECTOR_SIZE = 768
+else:
+    embeddings = OpenAIEmbeddings(
+        model=settings.EMBEDDING_MODEL,
+        api_key=settings.OPENAI_API_KEY,
+    )
+    VECTOR_SIZE = 1536
 
 def _ensure_collection_exists():
     collections = [c.name for c in client.get_collections().collections]
@@ -19,7 +28,7 @@ def _ensure_collection_exists():
     if settings.COLLECTION_NAME not in collections:
         client.create_collection(
             collection_name=settings.COLLECTION_NAME,
-            vectors_config=VectorParams(size=1536, distance=Distance.COSINE)
+            vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE)
         )
         logger.info(f"Created collection {settings.COLLECTION_NAME}")
 
@@ -29,7 +38,7 @@ def index_documents(chunks: list[dict], batch_size: int = 100):
     for batch_start in range(0, len(chunks), batch_size):
         batch = chunks[batch_start:batch_start + batch_size]
 
-        texts = [chunk["text"] for chunk in chunks]
+        texts = [chunk["text"] for chunk in batch]
         vectors = embeddings.embed_documents(texts)
 
         points = [
