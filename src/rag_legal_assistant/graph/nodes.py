@@ -12,7 +12,8 @@ logger = logging.getLogger(__name__)
 llm = ChatOpenAI(
     model=settings.LLM_MODEL,
     api_key=settings.OPENAI_API_KEY,
-    temperature=0
+    temperature=0,
+    streaming=True
 )
 
 prompt = ChatPromptTemplate.from_template(
@@ -39,7 +40,7 @@ def retrieve_node(state: GraphState) :
     docs = search(question, top_k=5)
     return {"documents": docs}
 
-def generate_answer_node(state: GraphState):
+async def generate_answer_node(state: GraphState):
     logger.info("---NODE: GENERATE ANSWER ---")
 
     question = state["query"]
@@ -49,7 +50,7 @@ def generate_answer_node(state: GraphState):
         for doc in docs
     )
 
-    response = chain.invoke({"query": question, "context": context})
+    response = await chain.ainvoke({"query": question, "context": context})
     return {"answer": response.content}
 
 def grade_document_node(state: GraphState):
