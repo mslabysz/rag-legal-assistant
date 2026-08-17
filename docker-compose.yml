@@ -7,3 +7,40 @@ services:
     volumes:
       - ./qdrant_data:/qdrant/storage
     restart: unless-stopped
+    networks:
+      - rag_net
+
+  api:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - QDRANT_HOST=qdrant
+    depends_on:
+      - qdrant
+    networks:
+      - rag_net
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+    networks:
+      - rag_net
+    restart: unless-stopped
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+networks:
+  rag_net:
+    driver: bridge
