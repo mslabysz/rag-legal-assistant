@@ -21,9 +21,9 @@ async def lifespan(app: FastAPI):
     collections = [c.name for c in client.get_collections().collections]
     if settings.COLLECTION_NAME not in collections:
         logger.info("Collection not found. Starting automatic indexing...")
-        from rag_legal_assistant.retrieval.retriever import index_documents
+        from rag_legal_assistant.vectordb.client import index_documents
         from rag_legal_assistant.ingestion.loader import load_all_documents
-        from rag_legal_assistant.chunking.chunker import chunk_document
+        from rag_legal_assistant.ingestion.chunker import chunk_document
         docs = load_all_documents("data")
         all_chunks = []
         for d in docs:
