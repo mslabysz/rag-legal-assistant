@@ -1,6 +1,6 @@
 # RAG Legal Assistant
 
-An advanced, agentic Retrieval-Augmented Generation (RAG) system specialized in the analysis of Polish civil law. Built with LangGraph, FastAPI, and React, it features a self-corrective retrieval pipeline and real-time Server-Sent Events (SSE) streaming.
+An advanced, agentic Retrieval-Augmented Generation (RAG) system specialized in the analysis of Polish law. Built with LangGraph, FastAPI, and React, it features a self-corrective retrieval pipeline, real-time Server-Sent Events (SSE) streaming, cross-encoder reranking, and dynamic document upload capabilities.
 
 ## Features
 
@@ -11,50 +11,21 @@ An advanced, agentic Retrieval-Augmented Generation (RAG) system specialized in 
 
 ### Advanced RAG Architecture
 - **Semantic Search**: Utilizes Qdrant vector database for high-performance similarity search.
-- **Polish Language Embeddings**: Employs specialized HuggingFace models (`sdadas/st-polish-paraphrase-from-mpnet`) optimized for Polish legal text embedding.
+- **Cross-Encoder Reranking**: Employs **FlashRank** to drastically improve retrieval precision by re-scoring and re-ordering chunks based on deep semantic overlap.
 - **Multi-Query Retrieval**: Automatically generates multiple semantic variants of the user query to maximize context recall and overcome vocabulary mismatch in legal documents.
+- **Metadata Filtering**: Enables users to narrow down the vector search space to specific, user-selected legal documents, preventing cross-document hallucination.
+
+### Dynamic Knowledge Base & Citations
+- **In-browser PDF Upload**: Users can seamlessly upload new PDF documents via the chat interface. The backend automatically parses, chunks, embeds, and indexes the document into Qdrant on-the-fly.
+- **Source Citations Panel**: The frontend visually displays the exact source documents, chunk text, and Reranker relevance scores used by the AI to generate the answer, providing full explainability (Explainable AI).
 
 ### Real-Time Streaming
-- Fully asynchronous backend built with FastAPI.
-- Employs Server-Sent Events (SSE) via LangGraph's `astream_events` (v2) to stream the generated answer token-by-token directly to the React frontend, ensuring a low latency and highly responsive user experience.
+- Fully asynchronous backend built with FastAPI and cleanly organized using `APIRouter`.
+- Employs Server-Sent Events (SSE) via LangGraph's `astream_events` (v2) to stream both the retrieved sources and the generated answer token-by-token directly to the React frontend, ensuring a highly responsive user experience.
 
 ### Quantitative Evaluation
 - Pipeline accuracy and robustness rigorously evaluated using the **RAGAS** framework.
 - Evaluated against a custom ground-truth dataset comprising complex legal scenarios.
-
-## Tech Stack
-
-| Layer | Technologies |
-|---|---|
-| **Backend** | FastAPI, Uvicorn, Python 3.12, uv |
-| **Vector Database** | Qdrant |
-| **Orchestration** | LangGraph, LangChain |
-| **LLM & Embeddings** | OpenAI (gpt-4o-mini, text-embedding-3-small), HuggingFace |
-| **Frontend** | React 19, Vite, TypeScript |
-| **Evaluation** | RAGAS, Datasets |
-| **Deployment** | Docker, Docker Compose |
-
-## Architecture
-
-```mermaid
-graph TD
-    User([User]) -->|Query| Frontend[React SPA]
-    Frontend -->|POST /chat| API[FastAPI Backend]
-    
-    subgraph LangGraph Pipeline
-        API --> Retrieve[Retrieve Node]
-        Retrieve --> Qdrant[(Qdrant Vector Store)]
-        Qdrant -->|Context| Grade[Grade Relevance Node]
-        
-        Grade -->|Irrelevant?| Rewrite[Rewrite Query Node]
-        Rewrite -->|New Query| Retrieve
-        
-        Grade -->|Relevant?| Generate[Generate Answer Node]
-    end
-    
-    Generate -->|SSE Token Stream| API
-    API -->|SSE Token Stream| Frontend
-```
 
 ## Performance & Evaluation
 
@@ -73,6 +44,46 @@ The system was benchmarked using the **RAGAS** (Retrieval Augmented Generation A
    Qdrant was chosen over FAISS for its robust Docker support, production-readiness, and built-in REST/gRPC APIs, allowing for seamless integration into a containerized microservices architecture.
 3. **Why uv?**
    `uv` by Astral was selected as the package manager due to its Rust-based dependency resolution, which drastically reduces build times during Docker image construction compared to standard `pip`.
+
+## Tech Stack
+
+| Layer | Technologies |
+|---|---|
+| **Backend** | FastAPI, APIRouter, Python 3.12, uv |
+| **Vector Database** | Qdrant |
+| **Orchestration** | LangGraph, LangChain |
+| **Reranking** | FlashRank |
+| **LLM & Embeddings** | OpenAI (gpt-4o-mini), HuggingFace (`st-polish-paraphrase-from-mpnet`) |
+| **Frontend** | React 19, Vite, TypeScript, Tailwind CSS |
+| **Deployment** | Docker, Docker Compose (with local HF cache volume) |
+
+## Architecture
+
+```mermaid
+graph TD
+    User([User]) -->|Query + Optional Filter| Frontend[React SPA]
+    User -->|Upload PDF| Frontend
+    
+    Frontend -->|POST /upload| RouterDocs[Documents Router]
+    RouterDocs -->|Chunk & Embed| Qdrant[(Qdrant Vector Store)]
+    
+    Frontend -->|POST /chat/stream| RouterChat[Chat Router]
+    
+    subgraph LangGraph Pipeline
+        RouterChat --> Retrieve[Retrieve Node]
+        Retrieve -->|Multi-Query| Qdrant
+        Qdrant -->|Initial Chunks| Reranker[FlashRank Reranker]
+        Reranker -->|Top-K Chunks| Grade[Grade Relevance Node]
+        
+        Grade -->|Irrelevant?| Rewrite[Rewrite Query Node]
+        Rewrite -->|New Query| Retrieve
+        
+        Grade -->|Relevant?| Generate[Generate Answer Node]
+    end
+    
+    Generate -->|SSE Token Stream + Sources| RouterChat
+    RouterChat -->|SSE Token Stream| Frontend
+```
 
 ## Getting Started
 
@@ -95,8 +106,9 @@ The system was benchmarked using the **RAGAS** (Retrieval Augmented Generation A
 
 3. Build and run the containers using Docker Compose:
    ```bash
-   docker compose up --build
+   docker compose up --build -d
    ```
+   *Note: On the first run, the system will download the embedding and reranker models to a local `./hf_cache` volume to persist them across restarts.*
 
 The orchestration spins up three services:
 - **Qdrant**: Available at `http://localhost:6333`
