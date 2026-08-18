@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 
 type Message = {
   id: string;
   text: string;
   sender: 'user' | 'agent';
   retries?: number;
+  sources?: any[];
 }
 
 function App() {
@@ -12,6 +13,60 @@ function App() {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [agentStatus, setAgentStatus] = useState<string | null>(null)
+  
+  const [availableDocuments, setAvailableDocuments] = useState<string[]>([])
+  const [selectedDocument, setSelectedDocument] = useState<string>('all')
+  
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    // Pobierz listę dokumentów przy załadowaniu strony
+    fetch('http://localhost:8000/documents')
+      .then(res => res.json())
+      .then(data => setAvailableDocuments(data.documents || []))
+      .catch(err => console.error("Nie udało się pobrać listy dokumentów", err));
+  }, []);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsLoading(true);
+    setAgentStatus("Wgrywanie i indeksowanie dokumentu...");
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const response = await fetch('http://localhost:8000/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error("Błąd podczas wgrywania pliku");
+
+      const data = await response.json();
+      
+      const successMsg: Message = { 
+        id: Date.now().toString(), 
+        text: `Sukces! Wgrano i zindeksowano plik ${file.name}. Możesz teraz o niego pytać.`, 
+        sender: 'agent' 
+      };
+      setMessages(prev => [...prev, successMsg]);
+    } catch (error) {
+      console.error(error);
+      const errorMsg: Message = { 
+        id: Date.now().toString(), 
+        text: "Wystąpił błąd podczas wgrywania pliku.", 
+        sender: 'agent' 
+      };
+      setMessages(prev => [...prev, errorMsg]);
+    } finally {
+      setIsLoading(false);
+      setAgentStatus(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
 
   const sendMessage = async () => {
     if (!input.trim()) return;
@@ -26,7 +81,10 @@ function App() {
       const response = await fetch('http://localhost:8000/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: userMsg.text }),
+        body: JSON.stringify({ 
+          query: userMsg.text,
+          filter_document: selectedDocument === 'all' ? null : selectedDocument
+        }),
       });
 
       if (!response.ok || !response.body) throw new Error("Błąd serwera API");
@@ -53,6 +111,26 @@ function App() {
               if (data.type === 'status') {
                 setAgentStatus(data.message);
               } 
+              else if (data.type === 'sources') {
+                setMessages(prev => {
+                  const newMsgs = [...prev];
+                  const lastMsg = newMsgs[newMsgs.length - 1];
+                  
+                  if (lastMsg && lastMsg.sender === 'agent' && lastMsg.id === 'streaming-agent') {
+                     newMsgs[newMsgs.length - 1] = { ...lastMsg, sources: data.documents };
+                     return newMsgs;
+                  } else {
+                     const agentMsg: Message = { 
+                       id: 'streaming-agent', 
+                       text: '', 
+                       sender: 'agent',
+                       sources: data.documents,
+                       retries: 0
+                     };
+                     return [...newMsgs, agentMsg];
+                  }
+                });
+              }
               else if (data.type === 'chunk') {
                 setMessages(prev => {
                   const newMsgs = [...prev];
@@ -122,70 +200,139 @@ function App() {
           <h1 className="text-xl font-bold text-slate-100">RAG Legal Assistant ⚖️</h1>
           <p className="text-xs text-slate-400">Agentic AI for Polish Law</p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="relative flex h-3 w-3">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-          </span>
-          <span className="text-xs font-semibold text-slate-300">API Connected (SSE)</span>
+        <div className="flex items-center gap-4">
+          <select 
+            value={selectedDocument}
+            onChange={(e) => setSelectedDocument(e.target.value)}
+            className="bg-slate-900 border border-slate-700 text-slate-300 text-xs rounded p-1.5 outline-none focus:border-emerald-500"
+          >
+            <option value="all">Przeszukuj wszystkie pliki</option>
+            {availableDocuments.map(doc => (
+              <option key={doc} value={doc}>{doc}</option>
+            ))}
+          </select>
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+            </span>
+            <span className="text-xs font-semibold text-slate-300">API Connected (SSE)</span>
+          </div>
         </div>
       </header>
 
-      {/* OKNO CZATU */}
-      <main className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 flex flex-col scrollbar-thin scrollbar-thumb-slate-700">
-        {messages.length === 0 ? (
-          <div className="m-auto text-center max-w-md text-slate-500">
-            <div className="text-4xl mb-4 opacity-80">📚</div>
-            <h2 className="text-lg font-semibold text-slate-300 mb-2">Jak mogę pomóc?</h2>
-            <p className="text-sm">Zadaj pytanie dotyczące polskiego prawa (np. z Kodeksu Cywilnego lub Prawa Budowlanego), a Agent przeszuka zindeksowane ustawy.</p>
-          </div>
-        ) : (
-          messages.map((msg) => (
-            <div key={msg.id} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
-              <div 
-                className={`max-w-[85%] md:max-w-[70%] p-4 rounded-2xl ${
-                  msg.sender === 'user' 
-                    ? 'bg-blue-600 text-white rounded-br-none shadow-md' 
-                    : 'bg-slate-800 border border-slate-700 text-slate-200 rounded-bl-none shadow-sm'
-                }`}
-              >
-                <p className="whitespace-pre-wrap text-sm md:text-base leading-relaxed">{msg.text}</p>
-                
-                {msg.sender === 'agent' && (
-                  <div className="mt-3 pt-2 border-t border-slate-700 flex items-center justify-between text-xs text-slate-400">
-                    <span>
-                      {msg.retries === 0 
-                        ? '✅ Sędzia zaakceptował dokumenty w 1. próbie' 
-                        : `🔄 Przepisywanie zapytań (Próby: ${msg.retries})`}
-                    </span>
-                  </div>
-                )}
-              </div>
+      {/* GŁÓWNY KONTENER (CZAT + PANEL ŹRÓDEŁ) */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* OKNO CZATU */}
+        <main className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 flex flex-col scrollbar-thin scrollbar-thumb-slate-700">
+          {messages.length === 0 ? (
+            <div className="m-auto text-center max-w-md text-slate-500">
+              <div className="text-4xl mb-4 opacity-80">📚</div>
+              <h2 className="text-lg font-semibold text-slate-300 mb-2">Jak mogę pomóc?</h2>
+              <p className="text-sm">Zadaj pytanie dotyczące polskiego prawa (np. z Kodeksu Cywilnego lub Prawa Budowlanego), a Agent przeszuka zindeksowane ustawy.</p>
             </div>
-          ))
-        )}
-
-        {/* LOADING STATE z raportowaniem strumieniowym (SSE) */}
-        {isLoading && agentStatus && (
-          <div className="flex items-start">
-             <div className="bg-slate-800 border border-slate-700 p-4 rounded-2xl rounded-bl-none shadow-sm flex items-center gap-3">
-                <div className="flex gap-1">
-                    <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
-                    <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
-                    <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></span>
+          ) : (
+            messages.map((msg) => (
+              <div key={msg.id} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
+                <div 
+                  className={`max-w-[85%] md:max-w-[80%] p-4 rounded-2xl ${
+                    msg.sender === 'user' 
+                      ? 'bg-blue-600 text-white rounded-br-none shadow-md' 
+                      : 'bg-slate-800 border border-slate-700 text-slate-200 rounded-bl-none shadow-sm'
+                  }`}
+                >
+                  <p className="whitespace-pre-wrap text-sm md:text-base leading-relaxed">{msg.text}</p>
+                  
+                  {msg.sender === 'agent' && (
+                    <div className="mt-3 pt-2 border-t border-slate-700 flex items-center justify-between text-xs text-slate-400">
+                      <span>
+                        {msg.retries === 0 
+                          ? '✅ Sędzia zaakceptował dokumenty w 1. próbie' 
+                          : `🔄 Przepisywanie zapytań (Próby: ${msg.retries ?? 0})`}
+                      </span>
+                    </div>
+                  )}
                 </div>
-                <span className="text-xs text-blue-400 font-mono tracking-wide">{agentStatus}</span>
-             </div>
-          </div>
-        )}
-      </main>
+              </div>
+            ))
+          )}
+
+          {/* LOADING STATE z raportowaniem strumieniowym (SSE) */}
+          {isLoading && agentStatus && (
+            <div className="flex items-start">
+               <div className="bg-slate-800 border border-slate-700 p-4 rounded-2xl rounded-bl-none shadow-sm flex items-center gap-3">
+                  <div className="flex gap-1">
+                      <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+                      <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+                      <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></span>
+                  </div>
+                  <span className="text-xs text-blue-400 font-mono tracking-wide">{agentStatus}</span>
+               </div>
+            </div>
+          )}
+        </main>
+
+        {/* PANEL ŹRÓDEŁ (PRAWY SIDEBAR) */}
+        <aside className="w-80 md:w-96 border-l border-slate-800 bg-slate-900 overflow-y-auto p-4 hidden lg:block scrollbar-thin scrollbar-thumb-slate-700">
+          <h2 className="font-semibold mb-4 text-slate-300 flex items-center gap-2">
+            <span>📑</span> Wykorzystane źródła
+          </h2>
+          
+          {(() => {
+            const activeSources = messages.filter(m => m.sender === 'agent' && m.sources && m.sources.length > 0).pop()?.sources || [];
+            
+            if (activeSources.length === 0) {
+              return (
+                <div className="text-center text-slate-600 mt-10 text-sm">
+                  Kiedy agent odpowie na Twoje pytanie, tutaj pojawią się fragmenty ustaw, z których korzystał.
+                </div>
+              );
+            }
+
+            return (
+              <div className="space-y-4">
+                {activeSources.map((doc, idx) => (
+                  <div key={idx} className="bg-slate-950 border border-slate-800 rounded-lg p-3 shadow-sm hover:border-slate-700 transition-colors">
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-xs font-medium text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded">
+                        {doc.source}
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-mono">
+                        Score: {doc.score?.toFixed(2)}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 line-clamp-6 leading-relaxed">
+                      {doc.text}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </aside>
+      </div>
 
       {/* PASEK INPUTU */}
       <footer className="bg-slate-950 border-t border-slate-800 p-4">
         <div className="max-w-4xl mx-auto flex gap-3">
           <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleFileUpload} 
+            accept=".pdf" 
+            className="hidden" 
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isLoading}
+            title="Załącz dokument PDF"
+            className="p-3 text-slate-400 hover:text-slate-100 bg-slate-900 border border-slate-700 rounded-lg hover:border-slate-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            📎
+          </button>
+          <input 
             type="text" 
-            className="flex-1 bg-slate-900 border border-slate-700 text-slate-100 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-3 outline-none placeholder-slate-500" 
+            className="flex-1 bg-slate-900 border border-slate-700 text-slate-100 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-3 outline-none placeholder-slate-500 disabled:opacity-50" 
             placeholder="Napisz pytanie prawne..." 
             value={input}
             onChange={(e) => setInput(e.target.value)}

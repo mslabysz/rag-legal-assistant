@@ -22,3 +22,11 @@ def load_all_documents(directory: str) -> list[dict]:
         })
         logger.info(f"Loaded: {pdf_path.name} ({len(text)} chars)")
     return docs
+
+def load_single_document(file_path: str, filename: str) -> dict:
+    text = load_pdf(file_path)
+    logger.info(f"Loaded uploaded file: {filename} ({len(text)} chars)")
+    return {
+        "source": file_path,
+        "text": text,
+    }

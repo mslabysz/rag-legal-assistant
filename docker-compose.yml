@@ -23,6 +23,7 @@ services:
       - HF_HOME=/root/.cache/huggingface
     volumes:
       - ./hf_cache:/root/.cache/huggingface
+      - ./data:/app/data
     depends_on:
       - qdrant
     networks:

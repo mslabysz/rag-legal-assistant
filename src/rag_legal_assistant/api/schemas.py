@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field
 
 class ChatRequest(BaseModel):
     query: str = Field(..., description="The user's legal question or prompt", examples=["Jaki jest termin przedawnienia?"])
+    filter_document: str | None = None
 
 
 class ChatResponse(BaseModel):

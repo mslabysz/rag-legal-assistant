@@ -5,3 +5,4 @@ class GraphState(TypedDict):
     documents: list[dict]
     answer: str
     retry_count: int
+    filter_document: str | None

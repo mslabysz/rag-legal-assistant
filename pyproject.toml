@@ -24,6 +24,7 @@ dependencies = [
     "sentence-transformers>=5.7.0",
     "torch>=2.4.0",
     "uvicorn>=0.52.3",
+    "python-multipart",
 ]
 
 [project.scripts]

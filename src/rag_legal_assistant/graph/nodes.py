@@ -14,7 +14,7 @@ def retrieve_node(state: GraphState) :
     logger.info("---NODE: RETRIEVE ---")
 
     question = state["query"]
-    docs = search(question, top_k=5)
+    docs = search(question, top_k=5, filter_document=state.get("filter_document"))
     return {"documents": docs}
 
 async def generate_answer_node(state: GraphState):
