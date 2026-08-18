@@ -2,28 +2,13 @@ import asyncio
 import logging
 from rag_legal_assistant.graph.state import GraphState
 from rag_legal_assistant.retrieval.retriever import search
-from langchain_core.prompts import ChatPromptTemplate
 from rag_legal_assistant.graph.chains import grader_chain, rewrite_chain
 from rag_legal_assistant.llm import llm_streaming
+from rag_legal_assistant.prompts import GENERATOR_PROMPT
 
 logger = logging.getLogger(__name__)
 
-prompt = ChatPromptTemplate.from_template(
-    """You are a legal assistant specializing in Polish law.
-Answer the user's question based ONLY on the provided context.
-If the context does not contain enough information to answer, say so clearly.
-Always cite the source document when possible.
-Respond in Polish.
-
-Context:
-{context}
-
-Question: {query}
-
-Answer:"""
-)
-
-chain = prompt | llm_streaming
+chain = GENERATOR_PROMPT | llm_streaming
 
 def retrieve_node(state: GraphState) :
     logger.info("---NODE: RETRIEVE ---")

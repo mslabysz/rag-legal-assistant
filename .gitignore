@@ -10,7 +10,10 @@ wheels/
 .venv
 
 .env
+# Database and cache volumes
 qdrant_data/
+hf_cache/
+
 .idea/
 *.csv
 
