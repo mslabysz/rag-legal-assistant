@@ -12,3 +12,8 @@ wheels/
 .env
 qdrant_data/
 .idea/
+*.csv
+
+# Frontend
+node_modules/
+frontend/dist/

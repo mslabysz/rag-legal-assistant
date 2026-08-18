@@ -6,9 +6,14 @@ from rag_legal_assistant.ingestion.loader import load_all_documents
 from rag_legal_assistant.ingestion.chunker import chunk_document
 from rag_legal_assistant.retrieval.retriever import index_documents
 
-client = QdrantClient(host="localhost", port=6333)
-client.delete_collection("legal_docs")
-print("Old collection deleted")
+client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+
+collections = [c.name for c in client.get_collections().collections]
+if settings.COLLECTION_NAME in collections:
+    client.delete_collection(settings.COLLECTION_NAME)
+    print(f"Old collection '{settings.COLLECTION_NAME}' deleted")
+else:
+    print(f"Collection '{settings.COLLECTION_NAME}' does not exist, creating new...")
 
 docs = load_all_documents("data")
 all_chunks = []

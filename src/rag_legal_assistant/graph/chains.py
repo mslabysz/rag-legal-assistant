@@ -1,13 +1,6 @@
 from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
-from rag_legal_assistant.config import settings
-
-llm = ChatOpenAI(
-    model=settings.LLM_MODEL,
-    api_key=settings.OPENAI_API_KEY,
-    temperature=0
-)
+from rag_legal_assistant.llm import llm
 
 class Grade(BaseModel):
     binary_score: str = Field(description="Answer 'yes' or 'no' if the document answers the question")

@@ -1,20 +1,12 @@
+import asyncio
 import logging
 from rag_legal_assistant.graph.state import GraphState
 from rag_legal_assistant.retrieval.retriever import search
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
-from rag_legal_assistant.config import settings
-from rag_legal_assistant.graph.schemas import grader_chain
-from rag_legal_assistant.graph.schemas import rewrite_chain
+from rag_legal_assistant.graph.chains import grader_chain, rewrite_chain
+from rag_legal_assistant.llm import llm_streaming
 
 logger = logging.getLogger(__name__)
-
-llm = ChatOpenAI(
-    model=settings.LLM_MODEL,
-    api_key=settings.OPENAI_API_KEY,
-    temperature=0,
-    streaming=True
-)
 
 prompt = ChatPromptTemplate.from_template(
     """You are a legal assistant specializing in Polish law.
@@ -31,7 +23,7 @@ Question: {query}
 Answer:"""
 )
 
-chain = prompt | llm
+chain = prompt | llm_streaming
 
 def retrieve_node(state: GraphState) :
     logger.info("---NODE: RETRIEVE ---")
@@ -53,19 +45,16 @@ async def generate_answer_node(state: GraphState):
     response = await chain.ainvoke({"query": question, "context": context})
     return {"answer": response.content}
 
-def grade_document_node(state: GraphState):
+async def grade_document_node(state: GraphState):
     logger.info("---NODE: GRADING ---")
 
-    question = state["query"]
-    documents = state["documents"]
-    filtered_docs = []
-
-    for doc in documents:
-        grade = grader_chain.invoke({"query": question, "context": doc.get("text")})
-        if grade.binary_score == "yes":
-            filtered_docs.append(doc)
-
-    return {"documents": filtered_docs}
+    tasks = [
+        grader_chain.ainvoke({"query": state["query"], "context": doc.get("text")})
+        for doc in state["documents"]
+    ]
+    grades = await asyncio.gather(*tasks)
+    filtered = [doc for doc, grade in zip(state["documents"], grades) if grade.binary_score.strip().lower() == "yes"]
+    return {"documents": filtered}
 
 def rewrite_query_node(state: GraphState):
     logger.info("---NODE: REWRITING ---")

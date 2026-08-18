@@ -59,7 +59,6 @@ function App() {
                   const lastMsg = newMsgs[newMsgs.length - 1];
                   
                   if (lastMsg && lastMsg.sender === 'agent' && lastMsg.id === 'streaming-agent') {
-                    // Tworzymy kopię ostatniej wiadomości (niemutowalność Reacta!)
                     newMsgs[newMsgs.length - 1] = {
                       ...lastMsg,
                       text: lastMsg.text + data.text
@@ -75,6 +74,20 @@ function App() {
                     };
                     return [...newMsgs, agentMsg];
                   }
+                });
+              }
+              else if (data.type === 'done') {
+                setMessages(prev => {
+                  const newMsgs = [...prev];
+                  const lastMsg = newMsgs[newMsgs.length - 1];
+                  if (lastMsg && lastMsg.sender === 'agent' && lastMsg.id === 'streaming-agent') {
+                    newMsgs[newMsgs.length - 1] = {
+                      ...lastMsg,
+                      id: Date.now().toString(),
+                      retries: data.retries
+                    };
+                  }
+                  return newMsgs;
                 });
               }
               else if (data.type === 'error') {

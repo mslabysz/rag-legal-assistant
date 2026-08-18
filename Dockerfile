@@ -12,6 +12,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY README.md ./
 COPY src ./src
+COPY data ./data
 
 RUN uv sync --frozen --no-dev
 

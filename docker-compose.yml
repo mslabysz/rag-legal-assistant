@@ -20,6 +20,9 @@ services:
       - .env
     environment:
       - QDRANT_HOST=qdrant
+      - HF_HOME=/root/.cache/huggingface
+    volumes:
+      - ./hf_cache:/root/.cache/huggingface
     depends_on:
       - qdrant
     networks:
