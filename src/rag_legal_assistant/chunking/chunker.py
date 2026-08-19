@@ -7,7 +7,7 @@ def chunk_document(text: str, source: str, chunk_size: int, chunk_overlap: int) 
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
-        separators=["\n\n", "\n", ". ", " ",""]
+        separators=["\nArt. ", "Art. ", "\nRozdział ", "\n\n", "\n", ". ", " ", ""]
     )
 
     chunks = [

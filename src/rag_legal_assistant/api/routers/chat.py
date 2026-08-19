@@ -27,6 +27,14 @@ async def chat_stream_endpoint(request: ChatRequest):
         try:
             is_generating = False
             retry_count = 0
+            # Słownik (mapa) zdarzeń do komunikatów, by uniknąć powtarzania yieldów
+            status_messages = {
+                "retrieve": "Szukam dokumentów w bazie...",
+                "grade_documents": "Sędzia ocenia przydatność dokumentów...",
+                "rewrite_query": "Odrzucono dokumenty. Przepisuję zapytanie i ponawiam próbę...",
+                "generate_answer": "Piszę odpowiedź..."
+            }
+
             async for event in agent_app.astream_events(
                     {"query": request.query,
                      "retry_count": 0,
@@ -37,30 +45,26 @@ async def chat_stream_endpoint(request: ChatRequest):
                 kind = event["event"]
                 name = event["name"]
 
-                if kind == "on_chain_start":
-                    if name == "retrieve":
-                        yield f"data: {json.dumps({'type': 'status', 'message': 'Szukam dokumentów w bazie...'})}\n\n"
-                    elif name == "grade_documents":
-                        yield f"data: {json.dumps({'type': 'status', 'message': 'Sędzia ocenia przydatność dokumentów...'})}\n\n"
-                    elif name == "rewrite_query":
-                        retry_count += 1
-                        yield f"data: {json.dumps({'type': 'status', 'message': 'Odrzucono dokumenty. Przepisuję zapytanie i ponawiam próbę...'})}\n\n"
-                    elif name == "generate_answer":
-                        yield f"data: {json.dumps({'type': 'status', 'message': 'Piszę odpowiedź...'})}\n\n"
-                        is_generating = True
+                match (kind, name):
+                    case ("on_chain_start", n) if n in status_messages:
+                        if n == "rewrite_query":
+                            retry_count += 1
+                        
+                        yield f"data: {json.dumps({'type': 'status', 'message': status_messages[n]})}\n\n"
 
-                        state_input = event.get("data", {}).get("input", {})
-                        if isinstance(state_input, dict) and "documents" in state_input:
-                            yield f"data: {json.dumps({'type': 'sources', 'documents': state_input['documents']})}\n\n"
+                        if n == "generate_answer":
+                            is_generating = True
+                            state_input = event.get("data", {}).get("input", {})
+                            if isinstance(state_input, dict) and "documents" in state_input:
+                                yield f"data: {json.dumps({'type': 'sources', 'documents': state_input['documents']})}\n\n"
 
-                elif kind == "on_chain_end":
-                    if name == "generate_answer":
+                    case ("on_chain_end", "generate_answer"):
                         is_generating = False
 
-                elif kind == "on_chat_model_stream" and is_generating:
-                    chunk = event["data"]["chunk"]
-                    if chunk.content:
-                        yield f"data: {json.dumps({'type': 'chunk', 'text': chunk.content})}\n\n"
+                    case ("on_chat_model_stream", _) if is_generating:
+                        chunk = event["data"]["chunk"]
+                        if chunk.content:
+                            yield f"data: {json.dumps({'type': 'chunk', 'text': chunk.content})}\n\n"
 
             yield f"data: {json.dumps({'type': 'done', 'retries': retry_count})}\n\n"
 
