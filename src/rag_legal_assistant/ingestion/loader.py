@@ -27,6 +27,6 @@ def load_single_document(file_path: str, filename: str) -> dict:
     text = load_pdf(file_path)
     logger.info(f"Loaded uploaded file: {filename} ({len(text)} chars)")
     return {
-        "source": file_path,
+        "source": filename,
         "text": text,
     }

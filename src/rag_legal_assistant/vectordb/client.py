@@ -1,4 +1,5 @@
 import logging
+import uuid
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 from langchain_qdrant import QdrantVectorStore
@@ -26,6 +27,9 @@ def ensure_collection_exists():
         )
         logger.info(f"Created collection {settings.COLLECTION_NAME}")
 
+def _point_id(source: str, chunk_index: int) -> str:
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"{source}:{chunk_index}"))
+
 def index_documents(chunks: list[dict], batch_size: int = 100):
     ensure_collection_exists()
 
@@ -37,7 +41,7 @@ def index_documents(chunks: list[dict], batch_size: int = 100):
 
         points = [
             PointStruct(
-                id=batch_start+i,
+                id=_point_id(chunk["source"], chunk["chunk_index"]),
                 vector=vector,
                 payload={
                     "text": chunk["text"],
@@ -47,7 +51,7 @@ def index_documents(chunks: list[dict], batch_size: int = 100):
                     }
                 }
             )
-            for i, (chunk,vector) in enumerate(zip(batch,vectors))
+            for chunk, vector in zip(batch, vectors)
         ]
 
         client.upsert(

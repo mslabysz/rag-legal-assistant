@@ -33,3 +33,17 @@ GENERATOR_PROMPT = ChatPromptTemplate.from_template(
     
     Answer:"""
 )
+
+MULTI_QUERY_PROMPT = ChatPromptTemplate.from_template(
+    """You are a search assistant for a vector database of Polish legal acts.
+    Generate 3 alternative phrasings of the user's question to maximise the chance
+    of matching the exact wording used in the statutes. Use legal terminology,
+    synonyms and the full names of legal institutions.
+    Rules:
+    - all 3 questions MUST be written in Polish,
+    - do NOT translate the question into English,
+    - return exactly 3 questions, each on a separate line,
+    - no numbering, no bullet points, no commentary.
+    Original question: {question}
+    Three alternative questions (in Polish):"""
+)

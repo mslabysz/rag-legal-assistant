@@ -24,6 +24,7 @@ services:
     volumes:
       - ./hf_cache:/root/.cache/huggingface
       - ./data:/app/data
+      - ./model_cache:/app/model_cache
     depends_on:
       - qdrant
     networks:

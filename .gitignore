@@ -13,6 +13,7 @@ wheels/
 # Database and cache volumes
 qdrant_data/
 hf_cache/
+model_cache/
 
 .idea/
 *.csv

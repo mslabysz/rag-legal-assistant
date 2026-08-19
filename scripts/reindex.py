@@ -1,11 +1,11 @@
 import logging
-logging.basicConfig(level=logging.INFO)
 from qdrant_client import QdrantClient
 from rag_legal_assistant.config import settings
 from rag_legal_assistant.ingestion.loader import load_all_documents
-from rag_legal_assistant.ingestion.chunker import chunk_document
+from rag_legal_assistant.chunking.chunker import chunk_document
 from rag_legal_assistant.vectordb.client import index_documents
 
+logging.basicConfig(level=logging.INFO)
 client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
 
 collections = [c.name for c in client.get_collections().collections]
