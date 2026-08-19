@@ -21,15 +21,15 @@ REWRITE_PROMPT = ChatPromptTemplate.from_template(
 
 GENERATOR_PROMPT = ChatPromptTemplate.from_template(
     """You are a legal assistant specializing in Polish law.
-Answer the user's question based ONLY on the provided context.
-If the context does not contain enough information to answer, say so clearly.
-Always cite the source document when possible.
-Respond in Polish.
-
-Context:
-{context}
-
-Question: {query}
-
-Answer:"""
+    Answer the user's question based ONLY on the provided context.
+    If the context does not contain enough information to answer, say so clearly.
+    Always cite the source document when possible.
+    Respond in Polish.
+    
+    Context:
+    {context}
+    
+    Question: {query}
+    
+    Answer:"""
 )

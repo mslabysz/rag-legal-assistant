@@ -27,7 +27,6 @@ async def chat_stream_endpoint(request: ChatRequest):
         try:
             is_generating = False
             retry_count = 0
-            # Słownik (mapa) zdarzeń do komunikatów, by uniknąć powtarzania yieldów
             status_messages = {
                 "retrieve": "Szukam dokumentów w bazie...",
                 "grade_documents": "Sędzia ocenia przydatność dokumentów...",
