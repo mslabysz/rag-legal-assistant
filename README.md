@@ -1,49 +1,87 @@
 # RAG Legal Assistant
 
-An advanced, agentic Retrieval-Augmented Generation (RAG) system specialized in the analysis of Polish law. Built with LangGraph, FastAPI, and React, it features a self-corrective retrieval pipeline, real-time Server-Sent Events (SSE) streaming, cross-encoder reranking, and dynamic document upload capabilities.
+An agentic Retrieval-Augmented Generation (RAG) system for querying Polish legal acts. Built with LangGraph, FastAPI, and React, it features a self-corrective retrieval pipeline, real-time Server-Sent Events (SSE) streaming, cross-encoder reranking, and dynamic document upload.
+
+Retrieval configuration was chosen by measurement, not intuition — see [Performance & Evaluation](#performance--evaluation) and the full benchmark in [`benchmarks/retrieval.md`](benchmarks/retrieval.md).
 
 ## Features
 
 ### Self-Corrective Retrieval Pipeline
-- Implemented using a state machine via **LangGraph**.
-- The pipeline does not blindly trust the retrieved documents. Instead, it utilizes an LLM-as-a-Judge (Grader) to evaluate the relevance of the retrieved context against the user query.
-- If the retrieved context is deemed irrelevant, a Rewriter node autonomously reformulates the query and triggers a new retrieval cycle until a satisfactory context is found or a retry limit is reached.
+- Implemented as a state machine via **LangGraph**.
+- The pipeline does not blindly trust retrieved documents. An LLM-as-a-Judge grades each retrieved chunk against the query and drops the irrelevant ones.
+- If every chunk is dropped, a Rewriter node reformulates the query and triggers a new retrieval cycle, up to 3 retries.
 
-### Advanced RAG Architecture
-- **Semantic Search**: Utilizes Qdrant vector database for high-performance similarity search.
-- **Cross-Encoder Reranking**: Employs **FlashRank** to drastically improve retrieval precision by re-scoring and re-ordering chunks based on deep semantic overlap.
-- **Multi-Query Retrieval**: Automatically generates multiple semantic variants of the user query to maximize context recall and overcome vocabulary mismatch in legal documents.
-- **Metadata Filtering**: Enables users to narrow down the vector search space to specific, user-selected legal documents, preventing cross-document hallucination.
+### Retrieval Architecture
+- **Semantic Search**: Qdrant vector database, 512-character chunks, Polish sentence-transformer embeddings.
+- **Cross-Encoder Reranking**: **FlashRank** re-scores candidates before they reach the LLM. Measured effect on the same candidate set: Hit Rate@5 rises from `0.400` to `0.667` for 39 ms per query.
+- **Multi-Query Retrieval**: Generates three Polish paraphrases of the query and searches with all of them plus the original. At a matched candidate budget this lifts recall from `0.789` to `0.844`, at a cost of ~1.5 s and one extra LLM call.
+- **Metadata Filtering**: Narrows the search space to a user-selected document, preventing cross-document contamination.
 
 ### Dynamic Knowledge Base & Citations
-- **In-browser PDF Upload**: Users can seamlessly upload new PDF documents via the chat interface. The backend automatically parses, chunks, embeds, and indexes the document into Qdrant on-the-fly.
-- **Source Citations Panel**: The frontend visually displays the exact source documents, chunk text, and Reranker relevance scores used by the AI to generate the answer, providing full explainability (Explainable AI).
+- **In-browser PDF Upload**: Uploaded PDFs are parsed, chunked, embedded, and indexed into Qdrant on the fly. Point IDs are deterministic UUIDs derived from `(source, chunk_index)`, so re-indexing a document is idempotent and never overwrites another document's chunks.
+- **Source Citations Panel**: The frontend displays source document, chunk text, and reranker relevance score for every chunk used in the answer.
 
 ### Real-Time Streaming
-- Fully asynchronous backend built with FastAPI and cleanly organized using `APIRouter`.
-- Employs Server-Sent Events (SSE) via LangGraph's `astream_events` (v2) to stream both the retrieved sources and the generated answer token-by-token directly to the React frontend, ensuring a highly responsive user experience.
-
-### Quantitative Evaluation
-- Pipeline accuracy and robustness rigorously evaluated using the **RAGAS** framework.
-- Evaluated against a custom ground-truth dataset comprising complex legal scenarios.
+- Fully asynchronous FastAPI backend organized with `APIRouter`.
+- Server-Sent Events via LangGraph's `astream_events` (v2) stream retrieved sources first, then the answer token by token.
 
 ## Performance & Evaluation
 
-The system was benchmarked using the **RAGAS** (Retrieval Augmented Generation Assessment) framework utilizing an LLM-as-a-Judge methodology on a dedicated legal dataset.
+Two separate evaluations, with deliberately different levels of confidence.
 
-- **Faithfulness**: `0.9375` (Answers are highly grounded in the retrieved context with minimal hallucination)
-- **Answer Relevancy**: `0.8502` (Responses directly address the user's intent)
-- **Context Precision**: `0.7500` (Highly relevant documents are ranked at the top of the retrieval results)
-- **Context Recall**: `0.7500` (The retrieved context contains the necessary information to answer the query)
+### Retrieval quality — n=90, deterministic
+
+The primary benchmark. 90 questions generated from the indexed corpus (one per randomly sampled article, stratified across five legal acts, LLM-validated), each with a known target article. A hit means the chunk that starts the correct article of the correct act appears in the top 5. No LLM judges the result, so the metric is reproducible.
+
+| Configuration | Hit Rate@5 | MRR@5 | Reranking p50 |
+|---|---|---|---|
+| **multi-query + FlashRank TinyBERT** (production) | **0.667** | **0.485** | 0.039s |
+| dense k=44 + FlashRank TinyBERT | 0.611 | 0.463 | 0.042s |
+| multi-query, no reranking | 0.400 | 0.321 | — |
+| multi-query + `ms-marco-MultiBERT-L-12` | 0.311 | 0.178 | 1.614s |
+
+Two results were worth the effort of measuring, because both contradicted a reasonable prior:
+
+- **The multilingual reranker is worse than no reranker at all** on this Polish corpus, losing to the 4 MB English `ms-marco-TinyBERT-L-2-v2` by 35 points of Hit Rate while being 40× slower. The lexical signal that matters here — article numbers, Latin-rooted legal terminology, proper nouns — apparently survives the language gap better than a quantized mBERT survives compression.
+- **`BAAI/bge-reranker-base` does not pay off on CPU**, trailing TinyBERT by 10 points at 56× the latency. On a 38-question set it had looked marginally better; expanding to 90 reversed the ordering, which is a fair reminder of how little a small eval set proves.
+
+Recall of the candidate set caps out at `0.844`, so ranking still loses 18 points of what retrieval already found. The full 12-configuration grid, limitations, and reproduction steps are in [`benchmarks/retrieval.md`](benchmarks/retrieval.md).
+
+### End-to-end answer quality — n=4, exploratory
+
+A **RAGAS** smoke test with LLM-as-a-Judge, on a hand-written 4-question ground-truth set:
+
+| Metric | Score |
+|---|---|
+| Faithfulness | 0.94 |
+| Answer Relevancy | 0.85 |
+| Context Precision | 0.75 |
+| Context Recall | 0.75 |
+
+Four questions is far too few to draw conclusions from — a single item moves any of these metrics by 25 points. Treat it as a regression check that the generation stage is grounded and on-topic, not as evidence of accuracy. Extending this set is the most valuable next step.
+
+### Cost and latency
+
+A single query issues up to 7 LLM calls: one to generate query paraphrases, one per retrieved chunk for grading (5, run concurrently), and one to generate the answer. Grading is the dominant cost and buys the self-correction loop; `dense k=44 + TinyBERT` reaches 92% of the production Hit Rate in ~70 ms of retrieval if that trade is not worth it.
 
 ## Design Decisions
 
-1. **Why LangGraph over standard LangChain Chains?**
-   Standard LCEL chains are linear (DAGs) and do not support cyclic execution. By utilizing LangGraph, the system implements a cyclic, self-correcting loop where poor retrieval results trigger a query rewrite and a subsequent re-retrieval. This significantly improves accuracy on complex legal queries where initial keyword matching often fails.
+1. **Why LangGraph over standard LangChain chains?**
+   LCEL chains are acyclic and cannot express a retry loop. LangGraph allows the grader to reject a context set and route back into retrieval through a rewritten query, with a retry counter in the graph state as the termination guard.
 2. **Why Qdrant?**
-   Qdrant was chosen over FAISS for its robust Docker support, production-readiness, and built-in REST/gRPC APIs, allowing for seamless integration into a containerized microservices architecture.
-3. **Why uv?**
-   `uv` by Astral was selected as the package manager due to its Rust-based dependency resolution, which drastically reduces build times during Docker image construction compared to standard `pip`.
+   Chosen over FAISS for first-class Docker support, a persistent server process, payload filtering used for per-document search, and REST/gRPC APIs that fit a containerized setup.
+3. **Why an English reranker for Polish text?**
+   Because it measured better. The multilingual alternative was benchmarked and lost decisively; see above.
+4. **Why uv?**
+   Rust-based dependency resolution cuts Docker build times substantially versus `pip`, and `uv.lock` keeps image builds reproducible.
+
+## Known Limitations
+
+- The RAGAS set is 4 questions. Answer-quality claims are correspondingly weak.
+- The retrieval benchmark scores only the chunk that *begins* the target article, so continuation chunks of long articles count as misses. All configurations are penalized equally, but absolute numbers are understated.
+- Benchmark questions were generated from the articles they target, so some lexical leakage is possible despite the paraphrase instruction.
+- No hybrid (BM25 + dense) retrieval yet. Given that 15.6% of questions never reach the candidate set, exact-match lexical retrieval is the most promising remaining lever.
+- No automated test suite; the `scripts/` directory holds manual verification scripts, not pytest tests.
 
 ## Tech Stack
 
@@ -52,10 +90,11 @@ The system was benchmarked using the **RAGAS** (Retrieval Augmented Generation A
 | **Backend** | FastAPI, APIRouter, Python 3.12, uv |
 | **Vector Database** | Qdrant |
 | **Orchestration** | LangGraph, LangChain |
-| **Reranking** | FlashRank |
-| **LLM & Embeddings** | OpenAI (gpt-4o-mini), HuggingFace (`st-polish-paraphrase-from-mpnet`) |
+| **Reranking** | FlashRank (`ms-marco-TinyBERT-L-2-v2`) |
+| **LLM & Embeddings** | OpenAI (gpt-4o-mini), HuggingFace (`sdadas/st-polish-paraphrase-from-mpnet`) |
+| **Evaluation** | RAGAS, custom retrieval harness (Hit Rate@k, MRR@k) |
 | **Frontend** | React 19, Vite, TypeScript, Tailwind CSS |
-| **Deployment** | Docker, Docker Compose (with local HF cache volume) |
+| **Deployment** | Docker, Docker Compose (with local HF and reranker cache volumes) |
 
 ## Architecture
 
@@ -63,24 +102,24 @@ The system was benchmarked using the **RAGAS** (Retrieval Augmented Generation A
 graph TD
     User([User]) -->|Query + Optional Filter| Frontend[React SPA]
     User -->|Upload PDF| Frontend
-    
+
     Frontend -->|POST /upload| RouterDocs[Documents Router]
     RouterDocs -->|Chunk & Embed| Qdrant[(Qdrant Vector Store)]
-    
+
     Frontend -->|POST /chat/stream| RouterChat[Chat Router]
-    
+
     subgraph LangGraph Pipeline
         RouterChat --> Retrieve[Retrieve Node]
         Retrieve -->|Multi-Query| Qdrant
-        Qdrant -->|Initial Chunks| Reranker[FlashRank Reranker]
-        Reranker -->|Top-K Chunks| Grade[Grade Relevance Node]
-        
-        Grade -->|Irrelevant?| Rewrite[Rewrite Query Node]
-        Rewrite -->|New Query| Retrieve
-        
-        Grade -->|Relevant?| Generate[Generate Answer Node]
+        Qdrant -->|44 Candidates| Reranker[FlashRank Reranker]
+        Reranker -->|Top 5 Chunks| Grade[Grade Relevance Node]
+
+        Grade -->|All chunks irrelevant| Rewrite[Rewrite Query Node]
+        Rewrite -->|New Query, max 3 retries| Retrieve
+
+        Grade -->|Relevant chunks kept| Generate[Generate Answer Node]
     end
-    
+
     Generate -->|SSE Token Stream + Sources| RouterChat
     RouterChat -->|SSE Token Stream| Frontend
 ```
@@ -104,18 +143,25 @@ graph TD
    OPENAI_API_KEY=sk-your-openai-api-key
    ```
 
-3. Build and run the containers using Docker Compose:
+3. Build and run the containers:
    ```bash
    docker compose up --build -d
    ```
-   *Note: On the first run, the system will download the embedding and reranker models to a local `./hf_cache` volume to persist them across restarts.*
+   *On the first run the embedding and reranker models are downloaded into the `./hf_cache` and `./model_cache` volumes so they persist across restarts.*
 
 The orchestration spins up three services:
-- **Qdrant**: Available at `http://localhost:6333`
-- **FastAPI Backend**: Available at `http://localhost:8000` (Interactive API docs at `http://localhost:8000/docs`)
-- **React Frontend**: Available at `http://localhost:5173`
+- **Qdrant**: `http://localhost:6333`
+- **FastAPI Backend**: `http://localhost:8000` (interactive docs at `/docs`)
+- **React Frontend**: `http://localhost:5173`
 
-Navigate to `http://localhost:5173` in your browser to interact with the Legal Assistant.
+Navigate to `http://localhost:5173` to interact with the assistant.
+
+### Reproducing the retrieval benchmark
+
+```bash
+docker compose exec api uv run --no-sync python scripts/build_eval_set.py
+docker compose exec api uv run --no-sync python scripts/run_retrieval_eval.py
+```
 
 ## License
 

@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "sdadas/st-polish-paraphrase-from-mpnet"
     LLM_MODEL: str = "gpt-4o-mini"
     EMBEDDING_PROVIDER: str = "local"
-    RERANKER_MODEL: str = "ms-marco-MultiBERT-L-12"
+    RERANKER_MODEL: str = "ms-marco-TinyBERT-L-2-v2"
     RERANKER_CACHE_DIR: str = "model_cache/flashrank"
 
 settings = Settings()
