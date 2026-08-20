@@ -26,6 +26,7 @@ dependencies = [
     "torch>=2.4.0",
     "uvicorn>=0.52.3",
     "python-multipart",
+    "langchain-huggingface>=1.2.2",
 ]
 
 [build-system]
@@ -54,4 +55,16 @@ torchvision = [
 torchaudio = [
   { index = "pytorch-cu124", marker = "sys_platform == 'win32'" },
   { index = "pytorch-cpu", marker = "sys_platform == 'linux'" }
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+    "integration: wymaga działającego Qdranta, klucza OpenAI i zaindeksowanego korpusu",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
 ]

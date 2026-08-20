@@ -9,7 +9,8 @@ Retrieval configuration was chosen by measurement, not intuition — see [Perfor
 ### Self-Corrective Retrieval Pipeline
 - Implemented as a state machine via **LangGraph**.
 - The pipeline does not blindly trust retrieved documents. An LLM-as-a-Judge grades each retrieved chunk against the query and drops the irrelevant ones.
-- If every chunk is dropped, a Rewriter node reformulates the query and triggers a new retrieval cycle, up to 3 retries.
+- If every chunk is dropped, a Rewriter node reformulates the query and triggers a new retrieval cycle, up to `MAX_QUERY_REWRITES` (default 3).
+- If nothing survives grading after those retries, the generator **does not call the LLM**. It returns a fixed refusal instead of answering from the model's parametric knowledge — which, without this guard, invents a statute and cites it as a source.
 
 ### Retrieval Architecture
 - **Semantic Search**: Qdrant vector database, 512-character chunks, Polish sentence-transformer embeddings.
@@ -58,7 +59,7 @@ A **RAGAS** smoke test with LLM-as-a-Judge, on a hand-written 4-question ground-
 | Context Precision | 0.75 |
 | Context Recall | 0.75 |
 
-Four questions is far too few to draw conclusions from — a single item moves any of these metrics by 25 points. Treat it as a regression check that the generation stage is grounded and on-topic, not as evidence of accuracy. Extending this set is the most valuable next step.
+Four questions is far too few to draw conclusions from — a single item moves any of these metrics by 25 points. Treat it as a regression check that the generation stage is grounded and on-topic, not as evidence of accuracy.
 
 ### Cost and latency
 
@@ -81,20 +82,22 @@ A single query issues up to 7 LLM calls: one to generate query paraphrases, one 
 - The retrieval benchmark scores only the chunk that *begins* the target article, so continuation chunks of long articles count as misses. All configurations are penalized equally, but absolute numbers are understated.
 - Benchmark questions were generated from the articles they target, so some lexical leakage is possible despite the paraphrase instruction.
 - No hybrid (BM25 + dense) retrieval yet. Given that 15.6% of questions never reach the candidate set, exact-match lexical retrieval is the most promising remaining lever.
-- No automated test suite; the `scripts/` directory holds manual verification scripts, not pytest tests.
+- The grader prompt is internally inconsistent — it calls itself strict, then grades on a loose “related keywords or meaning” criterion — and in practice resolves that toward strictness. Relevant chunks can be dropped, which is what exhausts the rewrite budget on questions the retriever actually answered.
+- The rewriter takes the already-rewritten query as input, not the original, so the loop can drift semantically (e.g. “limitation period” → “maximum limitation period”) instead of converging. Fixing either of the last two points would change retrieval behaviour and invalidate the published benchmark; they stay until the 90-question set is re-run.
+- The unit test suite covers the deterministic parts of the pipeline (chunking, article parsing, ranking metric, point IDs, and the empty-context refusal). Answer quality is still verified only by the benchmarks above, not by tests.
 
 ## Tech Stack
 
-| Layer | Technologies |
-|---|---|
-| **Backend** | FastAPI, APIRouter, Python 3.12, uv |
-| **Vector Database** | Qdrant |
-| **Orchestration** | LangGraph, LangChain |
-| **Reranking** | FlashRank (`ms-marco-TinyBERT-L-2-v2`) |
+| Layer | Technologies                                                                 |
+|---|------------------------------------------------------------------------------|
+| **Backend** | FastAPI, APIRouter, Python 3.12, uv, pytest                                  |
+| **Vector Database** | Qdrant                                                                       |
+| **Orchestration** | LangGraph, LangChain                                                         |
+| **Reranking** | FlashRank (`ms-marco-TinyBERT-L-2-v2`)                                       |
 | **LLM & Embeddings** | OpenAI (gpt-4o-mini), HuggingFace (`sdadas/st-polish-paraphrase-from-mpnet`) |
-| **Evaluation** | RAGAS, custom retrieval harness (Hit Rate@k, MRR@k) |
-| **Frontend** | React 19, Vite, TypeScript, Tailwind CSS |
-| **Deployment** | Docker, Docker Compose (with local HF and reranker cache volumes) |
+| **Evaluation** | RAGAS, custom retrieval harness (Hit Rate@k, MRR@k)                          |
+| **Frontend** | React 19, Vite, TypeScript, Tailwind CSS                                     |
+| **Deployment** | Docker, Docker Compose (with local HF and reranker cache volumes)            |
 
 ## Architecture
 
@@ -114,13 +117,16 @@ graph TD
         Qdrant -->|44 Candidates| Reranker[FlashRank Reranker]
         Reranker -->|Top 5 Chunks| Grade[Grade Relevance Node]
 
-        Grade -->|All chunks irrelevant| Rewrite[Rewrite Query Node]
-        Rewrite -->|New Query, max 3 retries| Retrieve
+        Grade -->|All chunks irrelevant, retries left| Rewrite[Rewrite Query Node]
+        Rewrite -->|New Query| Retrieve
 
         Grade -->|Relevant chunks kept| Generate[Generate Answer Node]
+        Grade -->|Nothing left after retries| Generate
+        Generate -->|Empty context| Refuse[Fixed refusal, no LLM]
     end
 
     Generate -->|SSE Token Stream + Sources| RouterChat
+    Refuse -->|SSE Refusal| RouterChat
     RouterChat -->|SSE Token Stream| Frontend
 ```
 
@@ -138,9 +144,9 @@ graph TD
    cd rag-legal-assistant
    ```
 
-2. Create a `.env` file in the root directory and add your OpenAI API key:
-   ```env
-   OPENAI_API_KEY=sk-your-openai-api-key
+2. Copy the example environment file and fill in your OpenAI API key. Everything else has a working default; see the comments in `.env.example`.
+   ```powershell
+   Copy-Item .env.example .env
    ```
 
 3. Build and run the containers:
@@ -161,6 +167,20 @@ Navigate to `http://localhost:5173` to interact with the assistant.
 ```bash
 docker compose exec api uv run --no-sync python scripts/build_eval_set.py
 docker compose exec api uv run --no-sync python scripts/run_retrieval_eval.py
+```
+
+### Tests
+
+Unit tests need neither Qdrant nor an OpenAI key:
+
+```powershell
+docker compose exec api uv run --no-sync pytest -m "not integration"
+```
+
+Integration tests hit the running API and require Qdrant, an indexed corpus, and an OpenAI key:
+
+```powershell
+docker compose exec api uv run --no-sync pytest -m integration
 ```
 
 ## License

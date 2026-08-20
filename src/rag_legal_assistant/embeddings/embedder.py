@@ -1,6 +1,6 @@
 import logging
 from langchain_openai import OpenAIEmbeddings
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from rag_legal_assistant.config import settings
 
 logger = logging.getLogger(__name__)

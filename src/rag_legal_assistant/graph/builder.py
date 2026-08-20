@@ -1,4 +1,5 @@
 from langgraph.graph import StateGraph, END
+from rag_legal_assistant.config import settings
 from rag_legal_assistant.graph.state import GraphState
 from rag_legal_assistant.graph.nodes import retrieve_node, generate_answer_node, grade_document_node, rewrite_query_node
 
@@ -17,7 +18,7 @@ workflow.add_edge("generate_answer", END)
 def decide_to_generate(state: GraphState):
     docs = state["documents"]
     retries = state.get("retry_count", 0)
-    if len(docs)>0 or retries>=3:
+    if len(docs)>0 or retries >= settings.MAX_QUERY_REWRITES:
         return "generate_answer"
     else:
         return "rewrite_query"

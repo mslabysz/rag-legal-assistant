@@ -47,3 +47,12 @@ MULTI_QUERY_PROMPT = ChatPromptTemplate.from_template(
     Original question: {question}
     Three alternative questions (in Polish):"""
 )
+
+NO_CONTEXT_ANSWER = (
+    "W zaindeksowanych dokumentach nie znalazłem fragmentu, który pozwalałby "
+    "odpowiedzieć na to pytanie.\n\n"
+    "Celowo nie odpowiadam z własnej wiedzy, żeby nie podać niesprawdzonej informacji "
+    "prawnej ani nie powołać się na przepis, którego nie widziałem w źródłach.\n\n"
+    "Co możesz zrobić: przeformułuj pytanie terminologią ustawową lub numerem artykułu, "
+    "zawęź je do konkretnego dokumentu albo wgraj własny plik PDF i zapytaj ponownie."
+)

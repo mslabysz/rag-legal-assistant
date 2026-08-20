@@ -1,10 +1,10 @@
 import logging
-import uuid
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 from langchain_qdrant import QdrantVectorStore
 from rag_legal_assistant.config import settings
 from rag_legal_assistant.embeddings.embedder import embeddings, VECTOR_SIZE
+from rag_legal_assistant.vectordb.ids import point_id
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +15,7 @@ vector_store = QdrantVectorStore(
     collection_name=settings.COLLECTION_NAME,
     embedding=embeddings,
     content_payload_key="text",
+    validate_collection_config=False
 )
 
 def ensure_collection_exists():
@@ -27,8 +28,6 @@ def ensure_collection_exists():
         )
         logger.info(f"Created collection {settings.COLLECTION_NAME}")
 
-def _point_id(source: str, chunk_index: int) -> str:
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"{source}:{chunk_index}"))
 
 def index_documents(chunks: list[dict], batch_size: int = 100):
     ensure_collection_exists()
@@ -41,7 +40,7 @@ def index_documents(chunks: list[dict], batch_size: int = 100):
 
         points = [
             PointStruct(
-                id=_point_id(chunk["source"], chunk["chunk_index"]),
+                id=point_id(chunk["source"], chunk["chunk_index"]),
                 vector=vector,
                 payload={
                     "text": chunk["text"],

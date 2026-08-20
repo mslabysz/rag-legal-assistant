@@ -1,9 +1,15 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 class ChatRequest(BaseModel):
-    query: str = Field(..., description="The user's legal question or prompt", examples=["Jaki jest termin przedawnienia?"])
-    filter_document: str | None = None
-
+    model_config = ConfigDict(str_strip_whitespace=True)
+    query: str = Field(
+        ...,
+        min_length=1,
+        max_length=2000,
+        description="The user's legal question or prompt",
+        examples=["Jaki jest termin przedawnienia?"],
+    )
+    filter_document: str | None = Field(default=None, max_length=255)
 
 class ChatResponse(BaseModel):
     answer: str = Field(..., description="The generated response from the LLM")

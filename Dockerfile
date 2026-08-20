@@ -10,16 +10,17 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-install-project
+    uv sync --frozen --no-install-project
 
 COPY README.md ./
 COPY src ./src
 COPY data ./data
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+    uv sync --frozen
 
 COPY scripts ./scripts
+COPY tests ./tests
 
 EXPOSE 8000
 

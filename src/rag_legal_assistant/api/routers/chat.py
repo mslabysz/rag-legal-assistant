@@ -14,11 +14,15 @@ async def chat_endpoint(request: ChatRequest):
     logger.info(f"Received query: {request.query}")
 
     try:
-        final_state = await agent_app.ainvoke({"query": request.query, "retry_count": 0})
+        final_state = await agent_app.ainvoke({
+            "query": request.query,
+            "retry_count": 0,
+            "filter_document": request.filter_document,
+        })
         return ChatResponse(answer=final_state["answer"], retries=final_state.get("retry_count", 0))
-    except Exception as e:
-        logger.error(f"Error during agent execution: {e}")
-        raise HTTPException(status_code=500, detail="Internal Server Error")
+    except Exception as exc:
+        logger.exception("Agent execution failed")
+        raise HTTPException(status_code=500, detail="Nie udało się wygenerować odpowiedzi") from exc
 
 
 @router.post("/stream")
@@ -26,6 +30,7 @@ async def chat_stream_endpoint(request: ChatRequest):
     async def event_generator():
         try:
             is_generating = False
+            streamed_chunk = False
             retry_count = 0
             status_messages = {
                 "retrieve": "Szukam dokumentów w bazie...",
@@ -53,6 +58,7 @@ async def chat_stream_endpoint(request: ChatRequest):
 
                         if n == "generate_answer":
                             is_generating = True
+                            streamed_chunk = False
                             state_input = event.get("data", {}).get("input", {})
                             if isinstance(state_input, dict) and "documents" in state_input:
                                 yield f"data: {json.dumps({'type': 'sources', 'documents': state_input['documents']})}\n\n"
@@ -60,15 +66,31 @@ async def chat_stream_endpoint(request: ChatRequest):
                     case ("on_chain_end", "generate_answer"):
                         is_generating = False
 
+                        if not streamed_chunk:
+                            output = event.get("data", {}).get("output", {})
+                            answer = output.get("answer", "") if isinstance(output, dict) else ""
+                            if answer:
+                                yield f"data: {json.dumps({'type': 'chunk', 'text': answer})}\n\n"
+
                     case ("on_chat_model_stream", _) if is_generating:
                         chunk = event["data"]["chunk"]
                         if chunk.content:
+                            streamed_chunk = True
                             yield f"data: {json.dumps({'type': 'chunk', 'text': chunk.content})}\n\n"
 
             yield f"data: {json.dumps({'type': 'done', 'retries': retry_count})}\n\n"
 
-        except Exception as e:
-            logger.error(f"Error during agent stream: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+        except Exception:
+            logger.exception("Streaming failed")
+            message = "Przetwarzanie zapytania nie powiodło się. Spróbuj ponownie."
+            yield f"data: {json.dumps({'type': 'error', 'message': message})}\n\n"
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

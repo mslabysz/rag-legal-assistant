@@ -1,14 +1,12 @@
 import argparse
 import hashlib
 import json
-import re
 import statistics
 import time
 from pathlib import Path
-
 from langchain_classic.retrievers.multi_query import MultiQueryRetriever
-
 from rag_legal_assistant.config import settings
+from rag_legal_assistant.eval.metrics import hit_rank
 from rag_legal_assistant.llm import llm
 from rag_legal_assistant.prompts import MULTI_QUERY_PROMPT
 from rag_legal_assistant.vectordb.client import vector_store
@@ -104,7 +102,7 @@ def fetch_candidates(dataset: list[dict]) -> dict:
                 ],
             })
             print(f"  [{name}] {i}/{len(dataset)}", end="\r")
-        print(f"  [{name}] gotowe ({len(dataset)} pytań)          ")
+        print(f"  [{name}] done ({len(dataset)} questions)          ")
         strategies[name] = rows
     return {"fingerprint": fingerprint(dataset), "strategies": strategies}
 
@@ -128,7 +126,7 @@ def rerank_cross_encoder(model_name, query, candidates):
     from sentence_transformers import CrossEncoder
 
     if model_name not in _MODELS:
-        print(f"  (ładuję {model_name})")
+        print(f"  (loading {model_name})")
         _MODELS[model_name] = CrossEncoder(model_name, max_length=512)
     scores = _MODELS[model_name].predict([(query, c["text"]) for c in candidates])
     order = sorted(range(len(candidates)), key=lambda i: scores[i], reverse=True)
@@ -141,16 +139,6 @@ RERANKERS = {
     "MultiBERT": (rerank_flashrank, "ms-marco-MultiBERT-L-12"),
     "bge-reranker-base": (rerank_cross_encoder, "BAAI/bge-reranker-base"),
 }
-
-
-
-def hit_rank(docs: list[dict], expected_source: str, expected_article: str) -> int | None:
-    """Pozycja (1-indeksowana) pierwszego fragmentu rozpoczynającego właściwy artykuł."""
-    pattern = re.compile(rf"(?:^|\n)\s*Art\.\s*{re.escape(expected_article)}(?![\da-z])")
-    for position, doc in enumerate(docs, start=1):
-        if doc["source"] == expected_source and pattern.search(doc["text"]):
-            return position
-    return None
 
 
 def score(rows: list[dict], rerank_fn, model_name, cutoff: int) -> dict:
@@ -175,39 +163,39 @@ def load_candidates(dataset: list[dict], refresh: bool) -> dict:
     if CACHE.exists() and not refresh:
         cached = json.loads(CACHE.read_text(encoding="utf-8"))
         if cached.get("fingerprint") == fingerprint(dataset):
-            print(f"Używam kandydatów z {CACHE}\n")
+            print(f"Using cached candidates from {CACHE}\n")
             return cached["strategies"]
-        print("Zbiór pytań się zmienił - pobieram kandydatów ponownie.\n")
+        print("Question set changed - fetching candidates again.\n")
 
-    print("Pobieram kandydatów...")
+    print("Fetching candidates...")
     payload = fetch_candidates(dataset)
     BENCHMARKS.mkdir(parents=True, exist_ok=True)
     CACHE.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    print(f"Zapisano do {CACHE}\n")
+    print(f"Saved to {CACHE}\n")
     return payload["strategies"]
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--refresh", action="store_true", help="pobierz kandydatów ponownie")
+    parser.add_argument("--refresh", action="store_true", help="fetch candidates again")
     args = parser.parse_args()
 
     dataset = json.loads(EVAL_SET.read_text(encoding="utf-8"))
-    print(f"{len(dataset)} pytań\n")
+    print(f"{len(dataset)} questions\n")
 
     candidates = load_candidates(dataset, args.refresh)
 
-    print("=== Pokrycie zbioru kandydatów ===")
+    print("=== Candidate set coverage ===")
     recall_rows = []
     for name, rows in candidates.items():
         result = score(rows, rerank_none, None, cutoff=10_000)
         recall_rows.append((name, result))
         print(
             f"  {name:<22} Recall={result['hit_rate']:.3f}  "
-            f"kandydatów={result['mean_candidates']:.0f}  p50={result['retrieval_p50']:.2f}s"
+            f"candidates={result['mean_candidates']:.0f}  p50={result['retrieval_p50']:.2f}s"
         )
 
-    print(f"\n=== Jakość rankingu (@{K}) ===")
+    print(f"\n=== Ranking quality (@{K}) ===")
     ranking_rows = []
     for strategy_name, rows in candidates.items():
         for reranker_name, (fn, model_name) in RERANKERS.items():
@@ -236,7 +224,7 @@ def main():
             f.write(f"| {name} | {r['hit_rate']:.3f} | {r['mrr']:.3f} | {r['rerank_p50']:.3f}s |\n")
         f.write(REPORT_FOOTER)
 
-    print(f"\nTabela zapisana do {OUT}")
+    print(f"\nTable written to {OUT}")
 
 
 if __name__ == "__main__":

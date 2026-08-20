@@ -4,7 +4,7 @@ from rag_legal_assistant.graph.state import GraphState
 from rag_legal_assistant.retrieval.retriever import search
 from rag_legal_assistant.graph.chains import grader_chain, rewrite_chain
 from rag_legal_assistant.llm import llm_streaming
-from rag_legal_assistant.prompts import GENERATOR_PROMPT
+from rag_legal_assistant.prompts import GENERATOR_PROMPT, NO_CONTEXT_ANSWER
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,11 @@ async def generate_answer_node(state: GraphState):
 
     question = state["query"]
     docs = state["documents"]
+
+    if not docs:
+        logger.warning("No documents survived grading, refusing to answer without context")
+        return {"answer": NO_CONTEXT_ANSWER}
+
     context = "\n\n---\n\n".join(
         f"[Source: {doc.get('source', 'nieznane')}]\n{doc.get('text', '')}"
         for doc in docs

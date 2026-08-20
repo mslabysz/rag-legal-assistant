@@ -20,7 +20,6 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    // Pobierz listę dokumentów przy załadowaniu strony
     fetch('http://localhost:8000/documents')
       .then(res => res.json())
       .then(data => setAvailableDocuments(data.documents || []))
@@ -45,7 +44,6 @@ function App() {
 
       if (!response.ok) throw new Error("Błąd podczas wgrywania pliku");
 
-      const data = await response.json();
       
       const successMsg: Message = { 
         id: Date.now().toString(), 
@@ -92,6 +90,7 @@ function App() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let streamError: Error | null = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -143,7 +142,6 @@ function App() {
                     };
                     return newMsgs;
                   } else {
-                    // To jest pierwsza literka! Tworzymy dymek Agenta
                     const agentMsg: Message = { 
                       id: 'streaming-agent', 
                       text: data.text, 
@@ -168,15 +166,17 @@ function App() {
                   return newMsgs;
                 });
               }
-              else if (data.type === 'error') {
-                throw new Error(data.message);
-              }
-            } catch (e) {
-              console.error("Błąd parsowania JSON ze strumienia", e);
-            }
-          }
+               else if (data.type === 'error') {
+          streamError = new Error(data.message);
         }
+      } catch (e) {
+        console.error("Błąd parsowania JSON ze strumienia", e);
       }
+    }
+  }
+  if (streamError) break;
+}
+if (streamError) throw streamError;
 
     } catch (error) {
       console.error(error);
@@ -279,7 +279,7 @@ function App() {
           </h2>
           
           {(() => {
-            const activeSources = messages.filter(m => m.sender === 'agent' && m.sources && m.sources.length > 0).pop()?.sources || [];
+            const activeSources = messages.filter(m => m.sender === 'agent' && Array.isArray(m.sources)).pop()?.sources || [];
             
             if (activeSources.length === 0) {
               return (

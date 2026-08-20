@@ -71,14 +71,14 @@ def is_substantive(article: dict) -> bool:
 
 def select_articles() -> list[dict]:
     articles = extract_articles("data")
-    print(f"Sparsowanych artykułów: {len(articles)}")
+    print(f"Parsed articles: {len(articles)}")
 
     counts = Counter((a["source"], a["article"]) for a in articles)
     eligible = [
         a for a in articles
         if counts[(a["source"], a["article"])] == 1 and is_substantive(a)
     ]
-    print(f"Po odsianiu duplikatów i przepisów meta: {len(eligible)}\n")
+    print(f"After dropping duplicates and boilerplate provisions: {len(eligible)}\n")
 
     by_source = defaultdict(list)
     for article in eligible:
@@ -91,21 +91,21 @@ def select_articles() -> list[dict]:
         pool = by_source[source]
         taken = random.sample(pool, min(per_source, len(pool)))
         sample.extend(taken)
-        print(f"  {source}: {len(pool)} kandydatów, wybrano {len(taken)}")
+        print(f"  {source}: {len(pool)} candidates, picked {len(taken)}")
     return sample
 
 
 async def main():
     sample = select_articles()
 
-    print(f"\nGeneruję {len(sample)} pytań...")
+    print(f"\nGenerating {len(sample)} questions...")
     generated = await question_chain.abatch(
         [{"article": a["text"][:4000]} for a in sample],
         config={"max_concurrency": 10},
     )
     questions = [response.content.strip() for response in generated]
 
-    print("Waliduję pytania względem artykułów...")
+    print("Validating questions against their articles...")
     verdicts = await validation_chain.abatch(
         [
             {"article": article["text"][:4000], "question": question}
@@ -127,12 +127,12 @@ async def main():
             rejected.append(f"{article['source']} / Art. {article['article']}: {question}")
 
     if rejected:
-        print(f"\nOdrzucone przez walidację ({len(rejected)}):")
+        print(f"\nRejected by validation ({len(rejected)}):")
         for row in rejected:
             print(f"  - {row}")
 
     OUT.write_text(json.dumps(dataset, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\nZapisano {len(dataset)} pytań do {OUT}")
+    print(f"\nSaved {len(dataset)} questions to {OUT}")
 
 
 if __name__ == "__main__":

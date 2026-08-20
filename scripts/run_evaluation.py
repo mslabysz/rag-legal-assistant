@@ -1,7 +1,7 @@
 import sys
 import asyncio
 
-# --- HOTFIX: Łata na zepsute importy w Ragas 0.4.x przy użyciu najnowszego LangChaina ---
+# --- HOTFIX: works around broken imports in Ragas 0.4.x on recent LangChain versions ---
 from unittest.mock import MagicMock
 sys.modules['langchain_community.chat_models.vertexai'] = MagicMock()
 sys.modules['langchain_community.embeddings.vertexai'] = MagicMock()
